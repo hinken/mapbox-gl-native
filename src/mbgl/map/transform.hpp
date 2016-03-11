@@ -53,24 +53,33 @@ public:
     // Zoom
 
     /** Scales the map, keeping the given point fixed within the view.
+        @param ds The difference in scale factors to scale the map by. */
+    void scaleBy(double ds, const Duration& = Duration::zero());
+    /** Scales the map, keeping the given point fixed within the view.
         @param ds The difference in scale factors to scale the map by.
         @param anchor A point relative to the top-left corner of the view.
             If unspecified, the center point is fixed within the view. */
-    void scaleBy(double ds, const ScreenCoordinate& anchor = {}, const Duration& = Duration::zero());
+    void scaleBy(double ds, const ScreenCoordinate& anchor, const Duration& = Duration::zero());
+    /** Sets the scale factor, keeping the given point fixed within the view.
+        @param scale The new scale factor. */
+    void setScale(double scale, const Duration& = Duration::zero());
     /** Sets the scale factor, keeping the given point fixed within the view.
         @param scale The new scale factor.
         @param anchor A point relative to the top-left corner of the view.
             If unspecified, the center point is fixed within the view. */
-    void setScale(double scale, const ScreenCoordinate& anchor = {}, const Duration& = Duration::zero());
+    void setScale(double scale, const ScreenCoordinate& anchor, const Duration& = Duration::zero());
     /** Sets the scale factor, keeping the center point fixed within the inset view.
         @param scale The new scale factor.
         @param padding The viewport padding that affects the fixed center point. */
     void setScale(double scale, const EdgeInsets& padding, const Duration& = Duration::zero());
     /** Sets the zoom level, keeping the given point fixed within the view.
+        @param zoom The new zoom level. */
+    void setZoom(double zoom, const Duration& = Duration::zero());
+    /** Sets the zoom level, keeping the given point fixed within the view.
         @param zoom The new zoom level.
         @param anchor A point relative to the top-left corner of the view.
             If unspecified, the center point is fixed within the view. */
-    void setZoom(double zoom, const ScreenCoordinate& anchor = {}, const Duration& = Duration::zero());
+    void setZoom(double zoom, const ScreenCoordinate& anchor, const Duration& = Duration::zero());
     /** Sets the zoom level, keeping the center point fixed within the inset view.
         @param zoom The new zoom level.
         @param padding The viewport padding that affects the fixed center point. */

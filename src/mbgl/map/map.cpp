@@ -372,7 +372,7 @@ void Map::resetNorth(const Duration& duration) {
 #pragma mark - Pitch
 
 void Map::setPitch(double pitch, const Duration& duration) {
-    setPitch(pitch, {NAN, NAN}, duration);
+    setPitch(pitch, ScreenCoordinate::null(), duration);
 }
 
 void Map::setPitch(double pitch, const ScreenCoordinate& anchor, const Duration& duration) {

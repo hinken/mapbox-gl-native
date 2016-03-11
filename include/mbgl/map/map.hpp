@@ -105,8 +105,8 @@ public:
     void resetPosition(const EdgeInsets& = {});
 
     // Scale
-    void scaleBy(double ds, const ScreenCoordinate& = { NAN, NAN }, const Duration& = Duration::zero());
-    void setScale(double scale, const ScreenCoordinate& = { NAN, NAN }, const Duration& = Duration::zero());
+    void scaleBy(double ds, const ScreenCoordinate& = ScreenCoordinate::null(), const Duration& = Duration::zero());
+    void setScale(double scale, const ScreenCoordinate& = ScreenCoordinate::null(), const Duration& = Duration::zero());
     double getScale() const;
     void setZoom(double zoom, const Duration& = Duration::zero());
     void setZoom(double zoom, const EdgeInsets&, const Duration& = Duration::zero());

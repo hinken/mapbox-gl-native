@@ -422,13 +422,17 @@ ScreenCoordinate Transform::getScreenCoordinate(const EdgeInsets& padding) const
 
 #pragma mark - Zoom
 
-void Transform::scaleBy(double ds, const ScreenCoordinate& center, const Duration& duration) {
-    if (std::isnan(ds) || !center) {
-        return;
-    }
+void Transform::scaleBy(double ds, const Duration& duration) {
+    scaleBy(ds, ScreenCoordinate::null(), duration);
+}
 
+void Transform::scaleBy(double ds, const ScreenCoordinate& anchor, const Duration& duration) {
     double scale = util::clamp(state.scale * ds, state.min_scale, state.max_scale);
-    setScale(scale, center, duration);
+    setScale(scale, anchor, duration);
+}
+
+void Transform::setZoom(double zoom, const Duration& duration) {
+    setZoom(zoom, ScreenCoordinate::null(), duration);
 }
 
 void Transform::setZoom(double zoom, const ScreenCoordinate& anchor, const Duration& duration) {
@@ -447,11 +451,15 @@ double Transform::getScale() const {
     return state.scale;
 }
 
+void Transform::setScale(double scale, const Duration& duration) {
+    setScale(scale, ScreenCoordinate::null(), duration);
+}
+
 void Transform::setScale(double scale, const ScreenCoordinate& anchor, const Duration& duration) {
     if (std::isnan(scale)) {
         return;
     }
-    
+
     CameraOptions camera;
     camera.zoom = state.scaleZoom(scale);
     if (anchor) camera.anchor = anchor;
@@ -459,7 +467,8 @@ void Transform::setScale(double scale, const ScreenCoordinate& anchor, const Dur
 }
 
 void Transform::setScale(double scale, const EdgeInsets& padding, const Duration& duration) {
-    setScale(scale, getScreenCoordinate(padding), duration);
+    const auto anchor = padding ? getScreenCoordinate(padding) : ScreenCoordinate::null();
+    setScale(scale, anchor, duration);
 }
 
 void Transform::setMinZoom(const double minZoom) {
@@ -502,7 +511,7 @@ void Transform::rotateBy(const ScreenCoordinate& first, const ScreenCoordinate& 
 }
 
 void Transform::setAngle(double angle, const Duration& duration) {
-    setAngle(angle, ScreenCoordinate { NAN, NAN }, duration);
+    setAngle(angle, ScreenCoordinate::null(), duration);
 }
 
 void Transform::setAngle(double angle, const ScreenCoordinate& anchor, const Duration& duration) {
@@ -517,7 +526,8 @@ void Transform::setAngle(double angle, const ScreenCoordinate& anchor, const Dur
 }
 
 void Transform::setAngle(double angle, const EdgeInsets& padding, const Duration& duration) {
-    setAngle(angle, getScreenCoordinate(padding), duration);
+    const auto anchor = padding ? getScreenCoordinate(padding) : ScreenCoordinate::null();
+    setAngle(angle, anchor, duration);
 }
 
 double Transform::getAngle() const {
@@ -527,7 +537,7 @@ double Transform::getAngle() const {
 #pragma mark - Pitch
 
 void Transform::setPitch(double pitch, const Duration& duration) {
-    setPitch(pitch, ScreenCoordinate {}, duration);
+    setPitch(pitch, ScreenCoordinate::null(), duration);
 }
 
 void Transform::setPitch(double pitch, const ScreenCoordinate& anchor, const Duration& duration) {
