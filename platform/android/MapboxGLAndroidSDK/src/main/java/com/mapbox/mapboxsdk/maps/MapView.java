@@ -13,6 +13,7 @@ import android.content.IntentFilter;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ServiceInfo;
+import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.PointF;
@@ -265,8 +266,8 @@ public class MapView extends FrameLayout {
         uiSettings.setZoomControlsEnabled(options.getZoomControlsEnabled());
 
         // Zoom
-        uiSettings.setMaxZoom(options.getMaxZoom());
-        uiSettings.setMinZoom(options.getMinZoom());
+        mMapboxMap.setMaxZoom(options.getMaxZoom());
+        mMapboxMap.setMinZoom(options.getMinZoom());
 
         // Compass
         uiSettings.setCompassEnabled(options.getCompassEnabled());
@@ -274,6 +275,9 @@ public class MapView extends FrameLayout {
         int[] compassMargins = options.getCompassMargins();
         if (compassMargins != null) {
             uiSettings.setCompassMargins(compassMargins[0], compassMargins[1], compassMargins[2], compassMargins[3]);
+        } else {
+            int tenDp = (int) getResources().getDimension(R.dimen.ten_dp);
+            uiSettings.setCompassMargins(tenDp, tenDp, tenDp, tenDp);
         }
 
         // Logo
@@ -282,6 +286,9 @@ public class MapView extends FrameLayout {
         int[] logoMargins = options.getLogoMargins();
         if (logoMargins != null) {
             uiSettings.setLogoMargins(logoMargins[0], logoMargins[1], logoMargins[2], logoMargins[3]);
+        } else {
+            int sixteenDp = (int) getResources().getDimension(R.dimen.sixteen_dp);
+            uiSettings.setLogoMargins(sixteenDp, sixteenDp, sixteenDp, sixteenDp);
         }
 
         // Attribution
@@ -290,6 +297,11 @@ public class MapView extends FrameLayout {
         int[] attributionMargins = options.getAttributionMargins();
         if (attributionMargins != null) {
             uiSettings.setAttributionMargins(attributionMargins[0], attributionMargins[1], attributionMargins[2], attributionMargins[3]);
+        } else {
+            Resources resources = getResources();
+            int sevenDp = (int) resources.getDimension(R.dimen.seven_dp);
+            int seventySixDp = (int) resources.getDimension(R.dimen.seventy_six_dp);
+            uiSettings.setAttributionMargins(seventySixDp, sevenDp, sevenDp, sevenDp);
         }
     }
 
@@ -355,8 +367,6 @@ public class MapView extends FrameLayout {
             mMapboxMap.setDebugActive(savedInstanceState.getBoolean(MapboxConstants.STATE_DEBUG_ACTIVE));
             mMapboxMap.setStyleUrl(savedInstanceState.getString(MapboxConstants.STATE_STYLE_URL));
             setAccessToken(savedInstanceState.getString(MapboxConstants.STATE_ACCESS_TOKEN));
-            mNativeMapView.setDefaultTransitionDuration(
-                    savedInstanceState.getLong(MapboxConstants.STATE_DEFAULT_TRANSITION_DURATION));
 
             // User location
             try {
@@ -371,13 +381,13 @@ public class MapView extends FrameLayout {
             trackingSettings.setMyLocationTrackingMode(savedInstanceState.getInt(MapboxConstants.STATE_MY_LOCATION_TRACKING_MODE, MyLocationTracking.TRACKING_NONE));
             //noinspection ResourceType
             trackingSettings.setMyBearingTrackingMode(savedInstanceState.getInt(MapboxConstants.STATE_MY_BEARING_TRACKING_MODE, MyBearingTracking.NONE));
-        } else {
+        } else if (savedInstanceState == null) {
             // Force a check for Telemetry
             validateTelemetryServiceConfigured();
 
             // Start Telemetry (authorization determined in initial MapboxEventManager constructor)
             MapboxEventManager eventManager = MapboxEventManager.getMapboxEventManager();
-            eventManager.initialise(getContext(), getAccessToken());
+            eventManager.initialize(getContext(), getAccessToken());
         }
 
         // Initialize EGL
@@ -388,7 +398,7 @@ public class MapView extends FrameLayout {
         addOnMapChangedListener(new OnMapChangedListener() {
             @Override
             public void onMapChanged(@MapChange int change) {
-                if (change == DID_FINISH_LOADING_MAP) {
+                if (change == DID_FINISH_RENDERING_MAP_FULLY_RENDERED) {
                     reloadIcons();
                     reloadMarkers();
                     adjustTopOffsetPixels();
@@ -430,7 +440,6 @@ public class MapView extends FrameLayout {
         outState.putBoolean(MapboxConstants.STATE_DEBUG_ACTIVE, mMapboxMap.isDebugActive());
         outState.putString(MapboxConstants.STATE_STYLE_URL, mStyleUrl);
         outState.putString(MapboxConstants.STATE_ACCESS_TOKEN, mMapboxMap.getAccessToken());
-        outState.putLong(MapboxConstants.STATE_DEFAULT_TRANSITION_DURATION, mNativeMapView.getDefaultTransitionDuration());
         outState.putBoolean(MapboxConstants.STATE_MY_LOCATION_ENABLED, mMapboxMap.isMyLocationEnabled());
 
         // TrackingSettings
@@ -482,22 +491,6 @@ public class MapView extends FrameLayout {
         mNativeMapView.destroySurface();
         mNativeMapView.destroy();
         mNativeMapView = null;
-    }
-
-    /**
-     * You must call this method from the parent's {@link Activity#onStart()} or {@link Fragment#onStart()}.
-     */
-    @UiThread
-    public void onStart() {
-        mUserLocationView.onStart();
-    }
-
-    /**
-     * You must call this method from the parent's {@link Activity#onStop()} or {@link Fragment#onStop()}
-     */
-    @UiThread
-    public void onStop() {
-        mUserLocationView.onStop();
     }
 
     /**
@@ -584,6 +577,10 @@ public class MapView extends FrameLayout {
     //
 
     double getDirection() {
+        if(mDestroyed){
+            return 0;
+        }
+
         double direction = -mNativeMapView.getBearing();
 
         while (direction > 360) {
@@ -694,6 +691,9 @@ public class MapView extends FrameLayout {
         } else {
             mNativeMapView.scaleBy(0.5, x / mScreenDensity, y / mScreenDensity, MapboxConstants.ANIMATION_DURATION);
         }
+
+        // work around to invalidate camera position
+        postDelayed(new ZoomInvalidator(mMapboxMap), MapboxConstants.ANIMATION_DURATION);
     }
 
     //
@@ -1271,6 +1271,10 @@ public class MapView extends FrameLayout {
         // Must handle window resizing here.
         @Override
         public void onSurfaceTextureSizeChanged(SurfaceTexture surface, int width, int height) {
+            if(mDestroyed){
+                return;
+            }
+
             mNativeMapView.resizeFramebuffer(width, height);
         }
 
@@ -1278,6 +1282,10 @@ public class MapView extends FrameLayout {
         // Must sync with UI here
         @Override
         public void onSurfaceTextureUpdated(SurfaceTexture surface) {
+            if(mDestroyed){
+                return;
+            }
+
             mCompassView.update(getDirection());
             mUserLocationView.update();
             for (InfoWindow infoWindow : mMapboxMap.getInfoWindows()) {
@@ -1421,7 +1429,8 @@ public class MapView extends FrameLayout {
 
             case MotionEvent.ACTION_POINTER_DOWN:
                 // Second pointer down
-                mTwoTap = event.getPointerCount() == 2;
+                mTwoTap = event.getPointerCount() == 2
+                        && mMapboxMap.getUiSettings().isZoomGesturesEnabled();
                 if (mTwoTap) {
                     // Confirmed 2nd Finger Down
                     trackGestureEvent(MapboxEvent.GESTURE_TWO_FINGER_SINGLETAP, event.getX(), event.getY());
@@ -2540,6 +2549,21 @@ public class MapView extends FrameLayout {
             Intent intent = new Intent(Intent.ACTION_VIEW);
             intent.setData(Uri.parse(url));
             context.startActivity(intent);
+        }
+    }
+
+    private static class ZoomInvalidator implements Runnable {
+
+        private MapboxMap mapboxMap;
+
+        public ZoomInvalidator(MapboxMap mapboxMap) {
+            this.mapboxMap = mapboxMap;
+        }
+
+        @Override
+        public void run() {
+            // invalidate camera position
+            mapboxMap.getCameraPosition();
         }
     }
 

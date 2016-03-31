@@ -11,8 +11,7 @@ namespace mbgl {
 
 class OfflineDatabase;
 class FileSource;
-class WorkRequest;
-class FileRequest;
+class AsyncRequest;
 class Resource;
 class Response;
 class SourceInfo;
@@ -49,15 +48,15 @@ private:
      */
     void ensureResource(const Resource&, std::function<void (Response)> = {});
     void ensureTiles(SourceType, uint16_t, const SourceInfo&);
-
+    bool checkTileCountLimit(const Resource& resource);
+    
     int64_t id;
     OfflineRegionDefinition definition;
     OfflineDatabase& offlineDatabase;
     FileSource& onlineFileSource;
     OfflineRegionStatus status;
     std::unique_ptr<OfflineRegionObserver> observer;
-    std::list<std::unique_ptr<WorkRequest>> workRequests;
-    std::list<std::unique_ptr<FileRequest>> fileRequests;
+    std::list<std::unique_ptr<AsyncRequest>> requests;
     std::set<std::string> requiredSourceURLs;
 };
 

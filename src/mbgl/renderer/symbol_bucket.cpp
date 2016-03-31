@@ -60,7 +60,7 @@ SymbolBucket::SymbolBucket(uint32_t overscaling_, float zoom_, const MapMode mod
     : overscaling(overscaling_),
       zoom(zoom_),
       tileSize(util::tileSize * overscaling_),
-      tilePixelRatio(util::EXTENT / tileSize),
+      tilePixelRatio(float(util::EXTENT) / tileSize),
       mode(mode_) {}
 
 SymbolBucket::~SymbolBucket() {
@@ -572,6 +572,7 @@ void SymbolBucket::addToDebugBuffers(CollisionTile &collisionTile) {
 void SymbolBucket::swapRenderData() {
     if (renderDataInProgress) {
         renderData = std::move(renderDataInProgress);
+        uploaded = false;
     }
 }
 

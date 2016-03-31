@@ -40,7 +40,7 @@ public class MapboxConstants {
     /**
      * The currently supported maximum zoom level.
      */
-    public static final float MAXIMUM_ZOOM = 25.5f;
+    public static final float MAXIMUM_ZOOM = 21.0f;
 
     /**
      * The currently supported maximum tilt value.
@@ -78,7 +78,6 @@ public class MapboxConstants {
     public static final String STATE_DEBUG_ACTIVE = "debugActive";
     public static final String STATE_STYLE_URL = "styleUrl";
     public static final String STATE_ACCESS_TOKEN = "accessToken";
-    public static final String STATE_DEFAULT_TRANSITION_DURATION = "defaultTransitionDuration";
     public static final String STATE_MY_LOCATION_ENABLED = "myLocationEnabled";
     public static final String STATE_MY_LOCATION_TRACKING_MODE = "myLocationTracking";
     public static final String STATE_MY_BEARING_TRACKING_MODE = "myBearingTracking";

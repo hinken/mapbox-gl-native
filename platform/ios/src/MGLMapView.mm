@@ -18,6 +18,7 @@
 #include <mbgl/platform/darwin/reachability.h>
 #include <mbgl/storage/default_file_source.hpp>
 #include <mbgl/storage/network_status.hpp>
+#include <mbgl/style/property_transition.hpp>
 #include <mbgl/util/geo.hpp>
 #include <mbgl/util/math.hpp>
 #include <mbgl/util/constants.hpp>
@@ -30,6 +31,7 @@
 #import "Mapbox.h"
 #import "../../darwin/src/MGLGeometry_Private.h"
 #import "../../darwin/src/MGLMultiPoint_Private.h"
+#import "../../darwin/src/MGLOfflineStorage_Private.h"
 
 #import "NSBundle+MGLAdditions.h"
 #import "NSString+MGLAdditions.h"
@@ -37,7 +39,6 @@
 #import "NSException+MGLAdditions.h"
 #import "MGLUserLocationAnnotationView.h"
 #import "MGLUserLocation_Private.h"
-#import "MGLAccountManager_Private.h"
 #import "MGLAnnotationImage_Private.h"
 #import "MGLMapboxEvents.h"
 #import "MGLCompactCalloutView.h"
@@ -187,7 +188,6 @@ public:
 {
     mbgl::Map *_mbglMap;
     MBGLView *_mbglView;
-    mbgl::DefaultFileSource *_mbglFileSource;
     
     BOOL _opaque;
 
@@ -211,6 +211,10 @@ public:
     BOOL _needsDisplayRefresh;
     
     NSUInteger _changeDelimiterSuppressionDepth;
+    
+    /// Center coordinate of the pinch gesture on the previous iteration of the gesture.
+    CLLocationCoordinate2D _previousPinchCenterCoordinate;
+    NSUInteger _previousPinchNumberOfTouches;
     
     BOOL _delegateHasAlphasForShapeAnnotations;
     BOOL _delegateHasStrokeColorsForShapeAnnotations;
@@ -303,31 +307,21 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     // setup mbgl view
     const float scaleFactor = [UIScreen instancesRespondToSelector:@selector(nativeScale)] ? [[UIScreen mainScreen] nativeScale] : [[UIScreen mainScreen] scale];
     _mbglView = new MBGLView(self, scaleFactor);
-
-    // setup mbgl cache & file source
-    NSString *fileCachePath = @"";
+    
+    // Delete the pre-offline ambient cache at ~/Library/Caches/cache.db.
     NSArray *paths = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES);
-    if ([paths count] != 0) {
-        NSString *libraryDirectory = [paths objectAtIndex:0];
-        fileCachePath = [libraryDirectory stringByAppendingPathComponent:@"cache.db"];
-    }
-    _mbglFileSource = new mbgl::DefaultFileSource([fileCachePath UTF8String], [[[[NSBundle mainBundle] resourceURL] path] UTF8String]);
+    NSString *fileCachePath = [paths.firstObject stringByAppendingPathComponent:@"cache.db"];
+    [[NSFileManager defaultManager] removeItemAtPath:fileCachePath error:NULL];
 
     // setup mbgl map
-    _mbglMap = new mbgl::Map(*_mbglView, *_mbglFileSource, mbgl::MapMode::Continuous, mbgl::GLContextMode::Unique, mbgl::ConstrainMode::None);
+    mbgl::DefaultFileSource *mbglFileSource = [MGLOfflineStorage sharedOfflineStorage].mbglFileSource;
+    _mbglMap = new mbgl::Map(*_mbglView, *mbglFileSource, mbgl::MapMode::Continuous, mbgl::GLContextMode::Unique, mbgl::ConstrainMode::None);
 
     // start paused if in IB
     if (_isTargetingInterfaceBuilder || background) {
         self.dormant = YES;
         _mbglMap->pause();
     }
-
-    // Observe for changes to the global access token (and find out the current one).
-    [[MGLAccountManager sharedManager] addObserver:self
-                                        forKeyPath:@"accessToken"
-                                           options:(NSKeyValueObservingOptionInitial |
-                                                    NSKeyValueObservingOptionNew)
-                                           context:NULL];
 
     // Notify map object when network reachability status changes.
     [[NSNotificationCenter defaultCenter] addObserver:self
@@ -450,7 +444,9 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     _pendingLongitude = NAN;
     _targetCoordinate = kCLLocationCoordinate2DInvalid;
 
-    [MGLMapboxEvents pushEvent:MGLEventTypeMapLoad withAttributes:@{}];
+    if ([UIApplication sharedApplication].applicationState != UIApplicationStateBackground) {
+        [MGLMapboxEvents pushEvent:MGLEventTypeMapLoad withAttributes:@{}];
+    }
 }
 
 - (void)createGLView
@@ -506,7 +502,6 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
 - (void)dealloc
 {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
-    [[MGLAccountManager sharedManager] removeObserver:self forKeyPath:@"accessToken"];
     [_attributionButton removeObserver:self forKeyPath:@"hidden"];
     
     [self validateDisplayLink];
@@ -515,12 +510,6 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     {
         delete _mbglMap;
         _mbglMap = nullptr;
-    }
-
-    if (_mbglFileSource)
-    {
-        delete _mbglFileSource;
-        _mbglFileSource = nullptr;
     }
 
     if (_mbglView)
@@ -826,6 +815,11 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
                                       - viewController.bottomLayoutGuide.length);
     contentInset.bottom = (CGRectGetMaxY(self.bounds)
                            - [self convertPoint:bottomPoint fromView:viewController.view].y);
+
+    // Negative insets are invalid, replace with 0.
+    contentInset.top = fmaxf(contentInset.top, 0);
+    contentInset.bottom = fmaxf(contentInset.bottom, 0);
+
     self.contentInset = contentInset;
 }
 
@@ -1000,6 +994,8 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
         _displayLink.paused = NO;
 
         [self validateLocationServices];
+        
+        [MGLMapboxEvents pushEvent:MGLEventTypeMapLoad withAttributes:@{}];
     }
 }
 
@@ -1146,7 +1142,18 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
 
         if (log2(newScale) < _mbglMap->getMinZoom()) return;
         
-        _mbglMap->setScale(newScale, { centerPoint.x, centerPoint.y });
+        _mbglMap->setScale(newScale, mbgl::ScreenCoordinate { centerPoint.x, centerPoint.y });
+        
+        // The gesture recognizer only reports the gesture’s current center
+        // point, so use the previous center point to anchor the transition.
+        // If the number of touches has changed, the remembered center point is
+        // meaningless.
+        if (self.userTrackingMode == MGLUserTrackingModeNone && pinch.numberOfTouches == _previousPinchNumberOfTouches)
+        {
+            CLLocationCoordinate2D centerCoordinate = _previousPinchCenterCoordinate;
+            _mbglMap->setLatLng(MGLLatLngFromLocationCoordinate2D(centerCoordinate),
+                                mbgl::ScreenCoordinate { centerPoint.x, centerPoint.y });
+        }
 
         [self notifyMapChange:mbgl::MapChangeRegionIsChanging];
     }
@@ -1183,13 +1190,16 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
 
         if (velocity)
         {
-            _mbglMap->setScale(newScale, { centerPoint.x, centerPoint.y }, MGLDurationInSeconds(duration));
+            _mbglMap->setScale(newScale, mbgl::ScreenCoordinate { centerPoint.x, centerPoint.y }, MGLDurationInSeconds(duration));
         }
 
         [self notifyGestureDidEndWithDrift:velocity];
 
         [self unrotateIfNeededForGesture];
     }
+    
+    _previousPinchCenterCoordinate = [self convertPoint:[pinch locationInView:pinch.view] toCoordinateFromView:self];
+    _previousPinchNumberOfTouches = pinch.numberOfTouches;
 }
 
 - (void)handleRotateGesture:(UIRotationGestureRecognizer *)rotate
@@ -1229,7 +1239,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
             newDegrees = fmaxf(newDegrees, -30);
         }
         
-        _mbglMap->setBearing(newDegrees, { centerPoint.x, centerPoint.y });
+        _mbglMap->setBearing(newDegrees, mbgl::ScreenCoordinate { centerPoint.x, centerPoint.y });
 
         [self notifyMapChange:mbgl::MapChangeRegionIsChanging];
     }
@@ -1244,7 +1254,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
             CGFloat newRadians = radians + velocity * duration * 0.1;
             CGFloat newDegrees = MGLDegreesFromRadians(newRadians) * -1;
 
-            _mbglMap->setBearing(newDegrees, { centerPoint.x, centerPoint.y }, MGLDurationInSeconds(duration));
+            _mbglMap->setBearing(newDegrees, mbgl::ScreenCoordinate { centerPoint.x, centerPoint.y }, MGLDurationInSeconds(duration));
 
             [self notifyGestureDidEndWithDrift:YES];
 
@@ -1395,7 +1405,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
             centerPoint = self.userLocationAnnotationViewCenter;
         }
         _mbglMap->scaleBy(powf(2, newZoom) / _mbglMap->getScale(),
-                          { centerPoint.x, centerPoint.y });
+                          mbgl::ScreenCoordinate { centerPoint.x, centerPoint.y });
 
         [self notifyMapChange:mbgl::MapChangeRegionIsChanging];
     }
@@ -1430,7 +1440,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
         {
             centerPoint = self.userLocationAnnotationViewCenter;
         }
-        _mbglMap->setPitch(pitchNew, centerPoint);
+        _mbglMap->setPitch(pitchNew, mbgl::ScreenCoordinate { centerPoint.x, centerPoint.y });
 
         [self notifyMapChange:mbgl::MapChangeRegionIsChanging];
     }
@@ -1606,15 +1616,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
 
 - (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(__unused void *)context
 {
-    // Synchronize mbgl::Map’s access token with the global one in MGLAccountManager.
-    if ([keyPath isEqualToString:@"accessToken"] && object == [MGLAccountManager sharedManager])
-    {
-        NSString *accessToken = change[NSKeyValueChangeNewKey];
-        if (![accessToken isKindOfClass:[NSNull class]]) {
-            _mbglFileSource->setAccessToken((std::string)[accessToken UTF8String]);
-        }
-    }
-    else if ([keyPath isEqualToString:@"hidden"] && object == _attributionButton)
+    if ([keyPath isEqualToString:@"hidden"] && object == _attributionButton)
     {
         NSNumber *hiddenNumber = change[NSKeyValueChangeNewKey];
         BOOL attributionButtonWasHidden = [hiddenNumber boolValue];
@@ -1992,7 +1994,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     else
     {
         CGPoint centerPoint = self.userLocationAnnotationViewCenter;
-        _mbglMap->setBearing(direction, { centerPoint.x, centerPoint.y },
+        _mbglMap->setBearing(direction, mbgl::ScreenCoordinate { centerPoint.x, centerPoint.y },
                              MGLDurationInSeconds(duration));
     }
 }
@@ -2154,7 +2156,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
 - (mbgl::LatLng)convertPoint:(CGPoint)point toLatLngFromView:(nullable UIView *)view
 {
     CGPoint convertedPoint = [self convertPoint:point fromView:view];
-    return _mbglMap->latLngForPixel(mbgl::ScreenCoordinate(convertedPoint.x, convertedPoint.y));
+    return _mbglMap->latLngForPixel(mbgl::ScreenCoordinate(convertedPoint.x, convertedPoint.y)).wrapped();
 }
 
 - (CGPoint)convertCoordinate:(CLLocationCoordinate2D)coordinate toPointToView:(nullable UIView *)view
@@ -2297,8 +2299,8 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
         newAppliedClasses.insert(newAppliedClasses.end(), [appliedClass UTF8String]);
     }
 
-    _mbglMap->setDefaultTransitionDuration(MGLDurationInSeconds(transitionDuration));
-    _mbglMap->setClasses(newAppliedClasses);
+    mbgl::PropertyTransition transition { { MGLDurationInSeconds(transitionDuration) } };
+    _mbglMap->setClasses(newAppliedClasses, transition);
 }
 
 - (BOOL)hasStyleClass:(NSString *)styleClass
@@ -2977,9 +2979,9 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
 
 - (void)showAnnotations:(NS_ARRAY_OF(id <MGLAnnotation>) *)annotations animated:(BOOL)animated
 {
-    CGFloat defaultPadding = 100;
-    CGFloat yPadding = (self.frame.size.height / 2 <= defaultPadding) ? (self.frame.size.height / 5) : defaultPadding;
-    CGFloat xPadding = (self.frame.size.width / 2 <= defaultPadding) ? (self.frame.size.width / 5) : defaultPadding;
+    CGFloat maximumPadding = 100;
+    CGFloat yPadding = (self.frame.size.height / 5 <= maximumPadding) ? (self.frame.size.height / 5) : maximumPadding;
+    CGFloat xPadding = (self.frame.size.width / 5 <= maximumPadding) ? (self.frame.size.width / 5) : maximumPadding;
 
     UIEdgeInsets edgeInsets = UIEdgeInsetsMake(yPadding, xPadding, yPadding, xPadding);
 

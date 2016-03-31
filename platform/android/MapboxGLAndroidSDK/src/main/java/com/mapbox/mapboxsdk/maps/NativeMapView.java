@@ -50,8 +50,13 @@ final class NativeMapView {
 
     public NativeMapView(MapView mapView) {
         Context context = mapView.getContext();
-        String cachePath = context.getCacheDir().getAbsolutePath();
         String dataPath = context.getFilesDir().getAbsolutePath();
+
+        // With the availability of offline, we're unifying the ambient (cache) and the offline
+        // databases to be in the same folder, outside cache, to avoid automatic deletion from
+        // the system
+        String cachePath = dataPath;
+
         float pixelRatio = context.getResources().getDisplayMetrics().density;
         String apkPath = context.getPackageCodePath();
         int availableProcessors = Runtime.getRuntime().availableProcessors();
@@ -194,24 +199,6 @@ final class NativeMapView {
 
     public List<String> getClasses() {
         return nativeGetClasses(mNativeMapViewPtr);
-    }
-
-    public void setDefaultTransitionDuration() {
-        setDefaultTransitionDuration(0);
-    }
-
-    public long getDefaultTransitionDuration() {
-        return nativeGetDefaultTransitionDuration(mNativeMapViewPtr);
-    }
-
-    public void setDefaultTransitionDuration(long milliseconds) {
-        if (milliseconds < 0) {
-            throw new IllegalArgumentException(
-                    "milliseconds cannot be negative.");
-        }
-
-        nativeSetDefaultTransitionDuration(mNativeMapViewPtr,
-                milliseconds);
     }
 
     public void setStyleUrl(String url) {
@@ -552,11 +539,6 @@ final class NativeMapView {
                                          List<String> classes);
 
     private native List<String> nativeGetClasses(long nativeMapViewPtr);
-
-    private native void nativeSetDefaultTransitionDuration(
-            long nativeMapViewPtr, long duration);
-
-    private native long nativeGetDefaultTransitionDuration(long nativeMapViewPtr);
 
     private native void nativeSetStyleUrl(long nativeMapViewPtr, String url);
 
