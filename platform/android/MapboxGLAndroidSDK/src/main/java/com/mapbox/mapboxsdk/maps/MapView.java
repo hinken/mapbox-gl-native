@@ -23,6 +23,7 @@ import android.location.Location;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.net.Uri;
+import android.os.AsyncTask;
 import android.os.Bundle;
 import android.support.annotation.CallSuper;
 import android.support.annotation.FloatRange;
@@ -398,19 +399,17 @@ public class MapView extends FrameLayout {
         addOnMapChangedListener(new OnMapChangedListener() {
             @Override
             public void onMapChanged(@MapChange int change) {
-                if (change == DID_FINISH_RENDERING_MAP_FULLY_RENDERED) {
+                if (change == DID_FINISH_RENDERING_MAP_FULLY_RENDERED && mInitialLoad) {
+                    mInitialLoad = false;
                     reloadIcons();
                     reloadMarkers();
                     adjustTopOffsetPixels();
-                    if (mInitialLoad) {
-                        mInitialLoad = false;
-                        if (mOnMapReadyCallbackList.size() > 0) {
-                            Iterator<OnMapReadyCallback> iterator = mOnMapReadyCallbackList.iterator();
-                            while (iterator.hasNext()) {
-                                OnMapReadyCallback callback = iterator.next();
-                                callback.onMapReady(mMapboxMap);
-                                iterator.remove();
-                            }
+                    if (mOnMapReadyCallbackList.size() > 0) {
+                        Iterator<OnMapReadyCallback> iterator = mOnMapReadyCallbackList.iterator();
+                        while (iterator.hasNext()) {
+                            OnMapReadyCallback callback = iterator.next();
+                            callback.onMapReady(mMapboxMap);
+                            iterator.remove();
                         }
                     }
                 }
@@ -2451,6 +2450,28 @@ public class MapView extends FrameLayout {
 
     void setMapboxMap(MapboxMap mapboxMap) {
         mMapboxMap = mapboxMap;
+    }
+
+    @UiThread
+    void snapshot(@NonNull final MapboxMap.SnapshotReadyCallback callback, @Nullable final Bitmap bitmap) {
+        final TextureView textureView = (TextureView) findViewById(R.id.textureView);
+        final boolean canUseBitmap = bitmap != null && textureView.getWidth() == bitmap.getWidth() && textureView.getHeight() == bitmap.getHeight();
+
+        new AsyncTask<Void, Void, Bitmap>() {
+            @Override
+            protected Bitmap doInBackground(Void... params) {
+                if (canUseBitmap) {
+                    return textureView.getBitmap(bitmap);
+                } else {
+                    return textureView.getBitmap();
+                }
+            }
+
+            @Override
+            protected void onPostExecute(Bitmap bitmap) {
+                callback.onSnapshotReady(bitmap);
+            }
+        }.execute();
     }
 
     //

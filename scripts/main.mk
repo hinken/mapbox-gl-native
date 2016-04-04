@@ -74,6 +74,7 @@ GYP_FLAGS += -Dhost=$(HOST)
 GYP_FLAGS += -Iconfig/$(HOST_SLUG).gypi
 GYP_FLAGS += -Dplatform_lib=$(PLATFORM)
 GYP_FLAGS += -Dhttp_lib=$(HTTP)
+GYP_FLAGS += -Dloop_lib=$(LOOP)
 GYP_FLAGS += -Dasset_lib=$(ASSET)
 GYP_FLAGS += -Dheadless_lib=$(HEADLESS)
 GYP_FLAGS += -Dtest=$(BUILD_TEST)
@@ -127,7 +128,7 @@ Makefile/%: Makefile/__project__
 
 Xcode/node: Xcode/__project__ node/xproj
 	@printf "$(TEXT_BOLD)$(COLOR_GREEN)* Building target node...$(FORMAT_END)\n"
-	$(QUIET)$(ENV) set -o pipefail && xcodebuild \
+	xcodebuild \
 		$(XCODEBUILD_ARGS) \
 		-project ./build/binding.xcodeproj \
 		-configuration $(BUILDTYPE) \
@@ -136,7 +137,8 @@ Xcode/node: Xcode/__project__ node/xproj
 
 Xcode/%: Xcode/__project__
 	@printf "$(TEXT_BOLD)$(COLOR_GREEN)* Building target $*...$(FORMAT_END)\n"
-	$(QUIET)$(ENV) set -o pipefail && xcodebuild \
+	xcodebuild \
+		PROVISIONING_PROFILE="$(PROVISIONING_PROFILE)" \
 		$(XCODEBUILD_ARGS) \
 		-project ./build/$(HOST_SLUG)/gyp/$(HOST).xcodeproj \
 		-configuration $(BUILDTYPE) \
@@ -184,6 +186,7 @@ print-env: $(SUBMODULES)
 		@printf "platform=$(COLOR_CYAN)%s$(FORMAT_END)  " $(PLATFORM)
 		@printf "asset=$(COLOR_CYAN)%s$(FORMAT_END)  " $(ASSET)
 		@printf "http=$(COLOR_CYAN)%s$(FORMAT_END)  " $(HTTP)
+		@printf "loop=$(COLOR_CYAN)%s$(FORMAT_END)  " $(LOOP)
 		@printf "\n"
 
 # Never remove intermediate files

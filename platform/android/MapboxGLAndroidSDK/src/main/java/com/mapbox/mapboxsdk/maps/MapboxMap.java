@@ -1,5 +1,6 @@
 package com.mapbox.mapboxsdk.maps;
 
+import android.graphics.Bitmap;
 import android.location.Location;
 import android.os.SystemClock;
 import android.support.annotation.FloatRange;
@@ -1449,6 +1450,14 @@ public class MapboxMap {
         return mMapView;
     }
 
+    void setUiSettings(UiSettings uiSettings){
+        mUiSettings = uiSettings;
+    }
+
+    void setProjection(Projection projection){
+        mProjection = projection;
+    }
+
     //
     // Invalidate
     //
@@ -1458,6 +1467,27 @@ public class MapboxMap {
      */
     public void invalidate() {
         mMapView.update();
+    }
+
+    /**
+     * Takes a snapshot of the map.
+     *
+     * @param callback Callback method invoked when the snapshot is taken.
+     * @param bitmap   A pre-allocated bitmap.
+     */
+    @UiThread
+    public void snapshot(@NonNull SnapshotReadyCallback callback, @Nullable final Bitmap bitmap) {
+        mMapView.snapshot(callback, bitmap);
+    }
+
+    /**
+     * Takes a snapshot of the map.
+     *
+     * @param callback Callback method invoked when the snapshot is taken.
+     */
+    @UiThread
+    public void snapshot(@NonNull SnapshotReadyCallback callback) {
+        mMapView.snapshot(callback, null);
     }
 
     //
@@ -1679,6 +1709,16 @@ public class MapboxMap {
          * Invoked when a task is complete.
          */
         void onFinish();
+    }
+
+    /**
+     * Interface definition for a callback to be invoked when the snapshot has been taken.
+     */
+    public interface SnapshotReadyCallback {
+        /**
+         * Invoked when the snapshot has been taken.
+         **/
+        void onSnapshotReady(Bitmap snapshot);
     }
 
     private class MapChangeCameraPositionListener implements MapView.OnMapChangedListener {
